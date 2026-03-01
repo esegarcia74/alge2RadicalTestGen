@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────
+# Algebra 2 Radical Test Generator — Python dependencies
+# ─────────────────────────────────────────────────────────────
+#
+# Install all dependencies:
+#     pip install -r requirements.txt
+#
+# Run the API server:
+#     uvicorn app:app --reload                         # development
+#     uvicorn app:app --host 0.0.0.0 --port 8000       # production
+#
+# Open in browser:
+#     http://127.0.0.1:8000            → built-in HTML test UI
+#     http://127.0.0.1:8000/docs       → Swagger / OpenAPI UI
+#     http://127.0.0.1:8000/redoc      → ReDoc UI
+# ─────────────────────────────────────────────────────────────
+
+# ── Web framework ─────────────────────────────────────────────
+fastapi>=0.111.0           # REST API framework
+uvicorn[standard]>=0.29.0  # ASGI server (includes websockets & httptools)
+python-multipart>=0.0.9    # required by FastAPI for form/file uploads
+
+# ── Data validation (bundled with FastAPI, pinned here for clarity) ──
+pydantic>=2.7.0
+
+# ── PDF generation ────────────────────────────────────────────
+reportlab>=4.1.0           # creates PDF documents
+matplotlib>=3.8.0          # renders math expressions as PNG images
+                           # (uses built-in mathtext engine — no LaTeX install needed)
+Pillow>=10.3.0             # image handling used by reportlab + matplotlib
+
+# ── Standard library only — no extra packages needed for:
+#    io, math, os, random, zipfile, typing
