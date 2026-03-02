@@ -319,18 +319,38 @@ def _build_pdf_version(story, plt, Image, Paragraph, Spacer,
                        var_min: int, var_max: int,
                        root_min: int, root_max: int,
                        name_label: str, date_label: str, period_label: str):
+    """
+    Layout rules
+    ─────────────
+    • Questions: number + prompt as a plain left-aligned paragraph,
+                 math image immediately below, flush to the left margin.
+                 No indentation, no padding columns.
+    • Page break separates every version's questions from its answer key.
+    • Answer key: compact 4-column grid so all answers fit on one page.
+    • Page break after the answer key before the next version.
+    """
 
     normal  = styles["Normal"]
     h1      = styles["h1"]
-    # Use version-unique style names to avoid ReportLab caching conflicts
+    # Version-unique style names avoid ReportLab's internal style-cache conflicts
     sec_sty = ParagraphStyle(f"SecHead_v{v}", parent=normal,
-                              fontSize=11, fontName="Helvetica-Bold", spaceAfter=4)
+                              fontSize=11, fontName="Helvetica-Bold",
+                              spaceAfter=2, spaceBefore=6)
+    num_sty = ParagraphStyle(f"QNum_v{v}",   parent=normal,
+                              fontSize=10,   fontName="Helvetica-Bold",
+                              spaceAfter=1,  spaceBefore=0)
     key_sty = ParagraphStyle(f"KeyHead_v{v}", parent=normal,
-                              fontSize=10, fontName="Helvetica-Bold",
-                              textColor=colors.HexColor("#444444"))
+                              fontSize=10,   fontName="Helvetica-Bold",
+                              textColor=colors.HexColor("#444444"),
+                              spaceAfter=3)
+    ans_num = ParagraphStyle(f"AnsNum_v{v}", parent=normal,
+                              fontSize=9,    fontName="Helvetica-Bold",
+                              spaceAfter=0)
 
-    MAX_Q = 4.5 * inch
-    MAX_A = 3.5 * inch
+    # Max widths for math images
+    PAGE_W  = 7.0 * inch   # usable width (letter - 0.75in margins each side)
+    MAX_Q   = PAGE_W        # questions: full usable width
+    MAX_A   = 1.5 * inch   # answers: compact (4-column grid)
 
     def _img(latex_str, fs=14, max_w=MAX_Q):
         png, w, h = _render_math_png(plt, latex_str, fontsize=fs)
@@ -339,75 +359,120 @@ def _build_pdf_version(story, plt, Image, Paragraph, Spacer,
             w  = max_w
         return Image(png, width=w, height=h)
 
-    # ── Header ────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════
+    #  QUESTIONS PAGE
+    # ══════════════════════════════════════════════════════════
+
+    # Version title
     story.append(Paragraph(f"<b>VERSION {v}</b>  —  {test_title}", h1))
-    story.append(Spacer(1, 6))
-    hdr_tbl = Table([[
-        Paragraph(f"{name_label}: ________________________________", normal),
-        Paragraph(f"{date_label}: _____________", normal),
-        Paragraph(f"{period_label}: ______", normal),
-    ]], colWidths=[3.2 * inch, 2.2 * inch, 1.6 * inch])
-    hdr_tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
-    story.append(hdr_tbl)
+    story.append(Spacer(1, 4))
+
+    # Student info line — full-width, left-aligned
+    story.append(Paragraph(
+        f"{name_label}: ________________________________  "
+        f"{date_label}: _____________  "
+        f"{period_label}: ______",
+        normal,
+    ))
     story.append(Spacer(1, 10))
 
     starts = _q_starts(sections, section_counts)
     all_qs = {s: _gen_section(s, section_counts[s], var_min, var_max, root_min, root_max)
               for s in sorted(sections)}
 
-    # ── Questions ─────────────────────────────────────────────
+    # Questions — fully left-justified
     for s in sorted(sections):
         qs = all_qs[s]
         s0 = starts[s]
         s1 = s0 + len(qs) - 1
+
         story.append(HRFlowable(width="100%", thickness=1,
                                 color=colors.HexColor("#888888")))
         story.append(Paragraph(
             f"SECTION {s} — {SECTION_TITLES[s]}"
-            f"   <font size='9'>(Q{s0}–Q{s1})</font>", sec_sty))
-        story.append(Spacer(1, 4))
+            f"   <font size='9'>(Q{s0}–Q{s1})</font>",
+            sec_sty,
+        ))
+
         for li, (prompt, q_tex, _) in enumerate(qs):
             qn  = s0 + li
             img = _img(q_tex)
-            row = Table(
-                [[Paragraph(f"<b>{qn}.</b>  {prompt}", normal), img]],
-                colWidths=[1.3 * inch, img.drawWidth + 0.2 * inch],
-            )
-            row.setStyle(TableStyle([
-                ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING",   (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ]))
-            story.append(KeepTogether(row))
-        story.append(Spacer(1, 8))
+            # ── Question number + prompt label, flush left ────
+            story.append(Paragraph(f"<b>{qn}.</b>  {prompt}", num_sty))
+            # ── Math image flush left, no indentation ─────────
+            story.append(img)
+            story.append(Spacer(1, 10))
 
-    # ── Answer key ────────────────────────────────────────────
-    story.append(HRFlowable(width="100%", thickness=1.5,
-                            color=colors.HexColor("#333333")))
-    story.append(Paragraph(f"<b>ANSWER KEY — VERSION {v}</b>", sec_sty))
-    story.append(Spacer(1, 4))
+        story.append(Spacer(1, 4))
+
+    # ══════════════════════════════════════════════════════════
+    #  PAGE BREAK — answers start on a fresh page
+    # ══════════════════════════════════════════════════════════
+    story.append(PageBreak())
+
+    # ══════════════════════════════════════════════════════════
+    #  ANSWER KEY PAGE  (compact grid, designed to fit on one page)
+    # ══════════════════════════════════════════════════════════
+    story.append(Paragraph(f"<b>ANSWER KEY — VERSION {v}</b>", h1))
+    story.append(Spacer(1, 6))
+
+    # Collect every (qn, answer_latex) pair across all sections in order
+    all_answers = []
     for s in sorted(sections):
         qs = all_qs[s]
         s0 = starts[s]
         story.append(Paragraph(
             f"<b>Section {s} — {SECTION_TITLES[s]}</b>", key_sty))
+
+        # Build a 4-column grid for this section's answers
+        COLS       = 4
+        cell_w     = PAGE_W / COLS
+        grid_rows  = []
+        current    = []
+
         for li, (_, _, a_tex) in enumerate(qs):
             qn  = s0 + li
-            img = _img(a_tex, fs=11, max_w=MAX_A)
-            row = Table(
-                [[Paragraph(f"<b>{qn}.</b>", normal), img]],
-                colWidths=[0.4 * inch, img.drawWidth + 0.1 * inch],
+            img = _img(a_tex, fs=10, max_w=cell_w - 0.3 * inch)
+            # Each cell: question number above the image
+            cell = Table(
+                [[Paragraph(f"<b>{qn}.</b>", ans_num)],
+                 [img]],
+                colWidths=[cell_w - 0.1 * inch],
             )
-            row.setStyle(TableStyle([
-                ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+            cell.setStyle(TableStyle([
+                ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+                ("TOPPADDING",    (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ]))
+            current.append(cell)
+            if len(current) == COLS:
+                grid_rows.append(current)
+                current = []
+
+        if current:                         # pad final row to full width
+            while len(current) < COLS:
+                current.append(Paragraph("", normal))
+            grid_rows.append(current)
+
+        if grid_rows:
+            grid = Table(grid_rows, colWidths=[cell_w] * COLS)
+            grid.setStyle(TableStyle([
+                ("BOX",           (0, 0), (-1, -1), 0.5,
+                                  colors.HexColor("#cccccc")),
+                ("INNERGRID",     (0, 0), (-1, -1), 0.5,
+                                  colors.HexColor("#cccccc")),
+                ("VALIGN",        (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING",   (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING",    (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
             ]))
-            story.append(row)
-        story.append(Spacer(1, 6))
+            story.append(grid)
+            story.append(Spacer(1, 8))
 
+    # Page break after every version's answer key
     story.append(PageBreak())
 
 
@@ -437,7 +502,7 @@ def build_pdf_bytes(
     from reportlab.lib           import colors
     from reportlab.platypus      import (SimpleDocTemplate, Paragraph, Spacer,
                                          Image, PageBreak, HRFlowable,
-                                         Table, TableStyle, KeepTogether)
+                                         Table, TableStyle)
 
     styles  = getSampleStyleSheet()
     out_buf = io.BytesIO()
@@ -450,7 +515,7 @@ def build_pdf_bytes(
     for v in range(1, num_versions + 1):
         _build_pdf_version(
             story, plt, Image, Paragraph, Spacer,
-            HRFlowable, KeepTogether, Table, TableStyle,
+            HRFlowable, None, Table, TableStyle,
             PageBreak, ParagraphStyle,
             styles, colors, inch,
             v, test_title, sections, section_counts,
